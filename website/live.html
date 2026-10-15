@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Live Results – Activity Time</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="live">
+    <div class="live-top">
+      <div class="vote-brand">🎯 Activity Time</div>
+      <div class="live-dot"><i></i>Live</div>
+    </div>
+
+    <div id="missing" class="center-msg" hidden>This city was not found.</div>
+
+    <div class="live-grid" id="grid" hidden>
+      <div>
+        <div class="board-head">
+          <small>LIVE RESULTS</small>
+          <h1 id="cityName">&nbsp;</h1>
+          <p>Share of people who chose each item as their 1st priority</p>
+        </div>
+        <div class="board" id="board"></div>
+      </div>
+
+      <div>
+        <div class="side-card">
+          <div class="total-num" id="total">0</div>
+          <div class="total-lbl">Total Participants</div>
+        </div>
+        <div class="side-card">
+          <canvas id="qr"></canvas>
+          <div class="scan">Scan to join</div>
+          <div class="url" id="url"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+  <script src="/config.js"></script>
+  <script src="/app.js"></script>
+  <script>
+    const slug = getSlug();
+    const $ = id => document.getElementById(id);
+    let last = "";
+    let inflight = false;
+    let started = false;
+
+    function render(d) {
+      const items = d.items || [];
+      const byName = Object.fromEntries(items.map(i => [i.item, i]));
+      /* always show all six, even before the first vote */
+      const rows = ITEMS.map(it => byName[it.name] || { item: it.name, points: 0, firsts: 0 });
+      /* ranked by how many people chose it as their 1st priority */
+      rows.sort((a, b) => b.firsts - a.firsts || b.points - a.points || a.item.localeCompare(b.item));
+      const total = Number(d.total) || 0;
+
+      $("cityName").textContent = d.city;
+      $("total").textContent = total;
+
+      const html = rows.map((r, i) => {
+        const pct = total ? Math.round(r.firsts / total * 100) : 0;
+        return '<div class="res-row r' + (i + 1) + '">' +
+          '<div class="res-rank">' + (i + 1) + '</div>' +
+          '<div class="res-icon">' + (ICONS[r.item] || "") + '</div>' +
+          '<div class="res-mid"><b>' + esc(r.item) + '</b>' +
+            '<div class="res-bar"><i style="width:' + pct + '%"></i></div></div>' +
+          '<div class="res-score"><b>' + pct + '%</b><span>' + r.firsts + (r.firsts === 1 ? ' person' : ' people') + '</span></div>' +
+        '</div>';
+      }).join("");
+
+      if (html !== last) {
+        $("board").innerHTML = html;
+        last = html;
+      }
+    }
+
+    async function refresh() {
+      if (inflight) return;
+      inflight = true;
+      try {
+        const { data, error } = await sb.rpc("get_results", { p_slug: slug });
+        if (error) return;
+        if (!data) {
+          if (!started) { $("missing").hidden = false; }
+          return;
+        }
+        if (!started) {
+          started = true;
+          document.title = data.city + " – Live Results";
+          $("grid").hidden = false;
+          const link = cityLinks(slug).form;
+          $("url").textContent = link.replace(/^https?:\/\//, "");
+          drawQR($("qr"), link, 600);
+          subscribe();
+        }
+        render(data);
+      } finally {
+        inflight = false;
+      }
+    }
+
+    function subscribe() {
+      try {
+        sb.channel("responses-" + slug)
+          .on("postgres_changes", { event: "*", schema: "public", table: "responses" }, () => refresh())
+          .subscribe();
+      } catch (e) { /* polling still keeps the page live */ }
+    }
+
+    if (!slug) { $("missing").hidden = false; }
+    else {
+      refresh();
+      setInterval(refresh, 3000);
+    }
+  </script>
+</body>
+</html>

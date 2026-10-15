@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Activity Time – Admin Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-left">
+      <form class="login-box" id="form" autocomplete="on">
+        <div class="brand-mark">🎯</div>
+        <h1>Welcome back</h1>
+        <p class="sub">Sign in to manage your cities and results.</p>
+
+        <div class="alert alert-error" id="err" hidden></div>
+
+        <label class="field">
+          <span>User ID</span>
+          <input class="input" id="uid" type="text" autocomplete="username" autocapitalize="none" spellcheck="false" placeholder="Enter your ID" required>
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input class="input" id="pw" type="password" autocomplete="current-password" placeholder="Enter your password" required>
+        </label>
+        <button class="btn btn-primary btn-block" id="btn" type="submit" style="padding:15px;margin-top:6px">Sign in</button>
+      </form>
+    </div>
+
+    <div class="login-right">
+      <h2>Rank priorities. See results live.</h2>
+      <div class="pill">One link and QR for every city</div>
+      <div class="mock">
+        <div class="mock-row"><span class="n">1</span>Own House<span class="bar"><i style="width:86%"></i></span></div>
+        <div class="mock-row"><span class="n" style="background:var(--rose)">2</span>Children<span class="bar"><i style="width:68%"></i></span></div>
+        <div class="mock-row"><span class="n" style="background:var(--sand);color:var(--brown)">3</span>Own Business<span class="bar"><i style="width:49%"></i></span></div>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="/config.js"></script>
+  <script src="/app.js"></script>
+  <script>
+    const err = document.getElementById("err");
+    const btn = document.getElementById("btn");
+
+    sb.auth.getSession().then(({ data }) => {
+      if (data && data.session) location.replace("/admin.html");
+    });
+
+    document.getElementById("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      err.hidden = true;
+      const id = document.getElementById("uid").value.trim();
+      const pw = document.getElementById("pw").value;
+      if (!id || !pw) return;
+      btn.disabled = true;
+      btn.textContent = "Signing in...";
+      const { error } = await sb.auth.signInWithPassword({ email: authEmail(id), password: authPass(pw) });
+      if (error) {
+        err.textContent = "Incorrect ID or password.";
+        err.hidden = false;
+        btn.disabled = false;
+        btn.textContent = "Sign in";
+        return;
+      }
+      location.replace("/admin.html");
+    });
+  </script>
+</body>
+</html>

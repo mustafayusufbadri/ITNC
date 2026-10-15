@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Activity Time – Admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="side">
+    <div class="logo"><div class="brand-mark">🎯</div>Activity Time</div>
+    <div class="nav-label">MENU</div>
+    <button class="nav-item active" data-view="cities">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0114 0C19 14.800 12 21 12 21z"/><circle cx="12" cy="9.500" r="2.500"/></svg>
+      Cities
+    </button>
+    <button class="nav-item" data-view="users">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.500"/><path d="M2.500 20a6.500 6.500 0 0113 0"/><path d="M16 4.500a3.500 3.500 0 010 7M18 14.500a6.500 6.500 0 013.500 5.500"/></svg>
+      Admin Users
+    </button>
+    <div class="side-bottom">
+      <button class="nav-item logout" id="logout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>
+        Logout
+      </button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <h1 id="pageTitle">Cities</h1>
+      <div class="who"><span id="whoName"></span><div class="avatar" id="whoAvatar">A</div></div>
+    </div>
+
+    <!-- CITIES -->
+    <section id="view-cities">
+      <div class="hero">
+        <small>ACTIVITY TIME</small>
+        <h2>Create a city, share the QR, watch results live.</h2>
+        <button class="btn btn-light" id="focusAdd">+ Add a City</button>
+      </div>
+
+      <div class="stats">
+        <div class="stat"><div class="ic">📍</div><div><b id="statCities">0</b><span>Cities</span></div></div>
+        <div class="stat"><div class="ic">👥</div><div><b id="statResp">0</b><span>Total Responses</span></div></div>
+      </div>
+
+      <form class="add-city" id="addForm">
+        <input class="input" id="cityName" type="text" maxlength="40" placeholder="New city name, e.g. Pisawada" required>
+        <button class="btn btn-primary" type="submit" id="addBtn">Create City</button>
+      </form>
+
+      <div class="section-title"><h3>Your Cities</h3></div>
+      <div id="cityGrid" class="city-grid"></div>
+    </section>
+
+    <!-- USERS -->
+    <section id="view-users" hidden>
+      <div class="panel" style="margin-bottom:20px">
+        <div class="section-title"><h3>Add Admin User</h3></div>
+        <form class="form-grid" id="userForm">
+          <label class="field"><span>User ID</span><input class="input" id="newId" type="text" autocapitalize="none" spellcheck="false" placeholder="e.g. speaker1" required></label>
+          <label class="field"><span>Password</span><input class="input" id="newPw" type="text" autocapitalize="none" placeholder="At least 4 characters" required></label>
+          <button class="btn btn-primary" type="submit" id="userBtn" style="padding:14px 18px">Create User</button>
+        </form>
+        <div class="alert alert-error" id="userErr" hidden style="margin:14px 0 0"></div>
+      </div>
+      <div class="panel">
+        <div class="section-title"><h3>All Admin Users</h3></div>
+        <div id="userList"><div class="center-msg" style="padding:30px">Loading...</div></div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<!-- SHARE MODAL -->
+<div class="overlay" id="shareOverlay" hidden>
+  <div class="modal">
+    <div class="modal-head"><h3 id="shareTitle">Share</h3><button class="x" id="shareClose" aria-label="Close">×</button></div>
+    <div class="tabs">
+      <button class="tab active" data-tab="form">Fill the form</button>
+      <button class="tab" data-tab="live">Live results</button>
+    </div>
+    <div class="qr-box"><canvas id="shareQr"></canvas></div>
+    <div class="link-row">
+      <input class="input" id="shareLink" readonly>
+      <button class="btn btn-ghost btn-sm" id="copyLink">Copy</button>
+    </div>
+    <div class="share-grid">
+      <button class="btn btn-primary full" id="copyQr">Copy QR Image</button>
+      <button class="btn btn-ghost" id="dlQr">Download PNG</button>
+      <button class="btn btn-ghost" id="copyMsg">Copy Message</button>
+      <a class="btn btn-gold full" id="waBtn" target="_blank" rel="noopener">Share on WhatsApp</a>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+<script src="/config.js"></script>
+<script src="/app.js"></script>
+<script>
+  const $ = id => document.getElementById(id);
+  let me = null;
+  let cities = [];
+  let share = { city: null, tab: "form" };
+
+  /* ---------- auth guard ---------- */
+  async function boot() {
+    const { data } = await sb.auth.getSession();
+    if (!data || !data.session) return location.replace("/index.html");
+    me = data.session.user;
+    const name = (me.email || "").split("@")[0];
+    $("whoName").textContent = name;
+    $("whoAvatar").textContent = name.charAt(0) || "A";
+    loadCities();
+  }
+  sb.auth.onAuthStateChange((evt) => { if (evt === "SIGNED_OUT") location.replace("/index.html"); });
+
+  $("logout").addEventListener("click", async () => {
+    await sb.auth.signOut();
+    location.replace("/index.html");
+  });
+
+  /* ---------- navigation ---------- */
+  document.querySelectorAll(".nav-item[data-view]").forEach(b => {
+    b.addEventListener("click", () => {
+      const v = b.dataset.view;
+      document.querySelectorAll(".nav-item[data-view]").forEach(x => x.classList.toggle("active", x === b));
+      $("view-cities").hidden = v !== "cities";
+      $("view-users").hidden = v !== "users";
+      $("pageTitle").textContent = v === "cities" ? "Cities" : "Admin Users";
+      if (v === "users") loadUsers();
+    });
+  });
+  $("focusAdd").addEventListener("click", () => { $("cityName").focus(); $("cityName").scrollIntoView({ behavior: "smooth", block: "center" }); });
+
+  /* ---------- cities ---------- */
+  async function loadCities() {
+    const { data, error } = await sb
+      .from("cities")
+      .select("id,name,slug,created_at,responses(count)")
+      .order("created_at", { ascending: false });
+    if (error) { toast("Could not load cities", "error"); return; }
+    cities = (data || []).map(c => ({
+      id: c.id, name: c.name, slug: c.slug,
+      count: (c.responses && c.responses[0] && c.responses[0].count) || 0
+    }));
+    renderCities();
+  }
+
+  function renderCities() {
+    $("statCities").textContent = cities.length;
+    $("statResp").textContent = cities.reduce((s, c) => s + c.count, 0);
+    const grid = $("cityGrid");
+    if (!cities.length) {
+      grid.innerHTML = '<div class="empty" style="grid-column:1/-1">No cities yet. Create your first city above.</div>';
+      return;
+    }
+    grid.innerHTML = cities.map(c => {
+      const l = cityLinks(c.slug);
+      return '<div class="city-card" data-id="' + c.id + '">' +
+        '<div class="city-head"><div><div class="city-name">' + esc(c.name) + '</div>' +
+        '<div class="city-link">' + esc(l.form.replace(/^https?:\/\//, "")) + '</div></div>' +
+        '<div class="count-pill">' + c.count + (c.count === 1 ? ' response' : ' responses') + '</div></div>' +
+        '<div class="card-actions">' +
+          '<button class="btn btn-primary btn-sm" data-act="share">Share / QR</button>' +
+          '<a class="btn btn-ghost btn-sm" href="' + esc(l.live) + '" target="_blank" rel="noopener">Live Results</a>' +
+          '<a class="btn btn-ghost btn-sm" href="' + esc(l.form) + '" target="_blank" rel="noopener">Open Form</a>' +
+        '</div>' +
+        '<div class="card-foot">' +
+          '<button class="link-btn" data-act="csv">Export CSV</button>' +
+          '<button class="link-btn" data-act="clear">Clear responses</button>' +
+          '<button class="link-btn del" data-act="delete">Delete</button>' +
+        '</div></div>';
+    }).join("");
+  }
+
+  $("cityGrid").addEventListener("click", async e => {
+    const b = e.target.closest("[data-act]");
+    if (!b) return;
+    const card = b.closest(".city-card");
+    const c = cities.find(x => x.id === card.dataset.id);
+    if (!c) return;
+    const act = b.dataset.act;
+    if (act === "share") openShare(c);
+    if (act === "csv") exportCsv(c);
+    if (act === "clear") {
+      if (!confirm('Delete all responses for "' + c.name + '"? This cannot be undone.')) return;
+      const { error } = await sb.from("responses").delete().eq("city_id", c.id);
+      if (error) return toast("Could not clear responses", "error");
+      toast("Responses cleared");
+      loadCities();
+    }
+    if (act === "delete") {
+      if (!confirm('Delete the city "' + c.name + '" and all its responses?')) return;
+      const { error } = await sb.from("cities").delete().eq("id", c.id);
+      if (error) return toast("Could not delete city", "error");
+      toast("City deleted");
+      loadCities();
+    }
+  });
+
+  $("addForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const name = $("cityName").value.trim();
+    if (!name) return;
+    const base = slugify(name) || "city";
+    $("addBtn").disabled = true;
+    let slug = base;
+    let error = null;
+    for (let i = 0; i < 4; i++) {
+      ({ error } = await sb.from("cities").insert({ name, slug }));
+      if (!error) break;
+      if (error.code !== "23505") break;
+      slug = base + "-" + Math.random().toString(36).slice(2, 6);
+    }
+    $("addBtn").disabled = false;
+    if (error) return toast("Could not create city", "error");
+    $("cityName").value = "";
+    toast("City created");
+    await loadCities();
+  });
+
+  async function exportCsv(c) {
+    const { data, error } = await sb.from("responses")
+      .select("created_at,ranking").eq("city_id", c.id).order("created_at");
+    if (error) return toast("Export failed", "error");
+    const q = v => '"' + String(v).replace(/"/g, '""') + '"';
+    const head = ["Submitted at", "1st", "2nd", "3rd", "4th", "5th", "6th"];
+    const rows = (data || []).map(r => [new Date(r.created_at).toLocaleString(), ...r.ranking]);
+    const csv = [head, ...rows].map(r => r.map(q).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = (c.slug || "city") + "-responses.csv";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  }
+
+  /* ---------- share ---------- */
+  function shareUrl() {
+    const l = cityLinks(share.city.slug);
+    return share.tab === "form" ? l.form : l.live;
+  }
+  function shareMessage() {
+    const n = share.city.name;
+    return share.tab === "form"
+      ? "Activity Time - " + n + "\nRank your priorities here:\n" + shareUrl()
+      : "Activity Time - " + n + "\nSee the live results here:\n" + shareUrl();
+  }
+  function paintShare() {
+    const url = shareUrl();
+    $("shareLink").value = url;
+    drawQR($("shareQr"), url, 1000);
+    $("waBtn").href = "https://wa.me/?text=" + encodeURIComponent(shareMessage());
+    document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.tab === share.tab));
+  }
+  function openShare(c) {
+    share = { city: c, tab: "form" };
+    $("shareTitle").textContent = c.name;
+    $("shareOverlay").hidden = false;
+    paintShare();
+  }
+  function closeShare() { $("shareOverlay").hidden = true; }
+  $("shareClose").addEventListener("click", closeShare);
+  $("shareOverlay").addEventListener("click", e => { if (e.target.id === "shareOverlay") closeShare(); });
+  document.addEventListener("keydown", e => { if (e.key === "Escape") closeShare(); });
+  document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => { share.tab = t.dataset.tab; paintShare(); }));
+
+  $("copyLink").addEventListener("click", async () => toast((await copyText(shareUrl())) ? "Link copied" : "Copy failed", ""));
+  $("copyMsg").addEventListener("click", async () => toast((await copyText(shareMessage())) ? "Message copied" : "Copy failed", ""));
+
+  function qrBlob() {
+    return new Promise(res => $("shareQr").toBlob(res, "image/png"));
+  }
+  $("dlQr").addEventListener("click", async () => {
+    const blob = await qrBlob();
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = share.city.slug + "-" + share.tab + "-qr.png";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+  $("copyQr").addEventListener("click", async () => {
+    try {
+      const blob = await qrBlob();
+      await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+      toast("QR image copied. Paste it into PowerPoint.");
+    } catch (e) {
+      toast("Your browser blocked image copy. Use Download PNG.", "error");
+    }
+  });
+
+  /* ---------- users ---------- */
+  async function callUsers(body) {
+    const { data, error } = await sb.functions.invoke("admin-users", { body });
+    if (error) {
+      let msg = "Request failed";
+      try { const j = await error.context.json(); if (j && j.error) msg = j.error; } catch (e) {}
+      throw new Error(msg);
+    }
+    if (data && data.error) throw new Error(data.error);
+    return data;
+  }
+
+  async function loadUsers() {
+    const box = $("userList");
+    try {
+      const data = await callUsers({ action: "list" });
+      box.innerHTML = data.users.map(u => {
+        const id = (u.email || "").split("@")[0];
+        const isMe = me && u.id === me.id;
+        return '<div class="user-row"><div class="avatar">' + esc(id.charAt(0)) + '</div>' +
+          '<div class="info"><b>' + esc(id) + (isMe ? ' (you)' : '') + '</b>' +
+          '<small>Created ' + new Date(u.created_at).toLocaleDateString() + '</small></div>' +
+          (isMe ? '' : '<button class="btn btn-danger btn-sm" data-uid="' + u.id + '">Remove</button>') +
+          '</div>';
+      }).join("") || '<div class="empty">No users.</div>';
+    } catch (e) {
+      box.innerHTML = '<div class="alert alert-error" style="margin:0">' + esc(e.message) + '</div>';
+    }
+  }
+
+  $("userList").addEventListener("click", async e => {
+    const b = e.target.closest("[data-uid]");
+    if (!b || !confirm("Remove this user?")) return;
+    try {
+      await callUsers({ action: "delete", id: b.dataset.uid });
+      toast("User removed");
+      loadUsers();
+    } catch (err) { toast(err.message, "error"); }
+  });
+
+  $("userForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    const id = $("newId").value.trim().toLowerCase();
+    const pw = $("newPw").value;
+    const err = $("userErr");
+    err.hidden = true;
+    if (!/^[a-z0-9._-]{3,30}$/.test(id)) {
+      err.textContent = "User ID: 3 to 30 letters, numbers, dot, dash or underscore.";
+      err.hidden = false;
+      return;
+    }
+    if (pw.length < 4) {
+      err.textContent = "Password must be at least 4 characters.";
+      err.hidden = false;
+      return;
+    }
+    $("userBtn").disabled = true;
+    try {
+      await callUsers({ action: "create", email: authEmail(id), password: authPass(pw) });
+      $("newId").value = "";
+      $("newPw").value = "";
+      toast("User created");
+      loadUsers();
+    } catch (ex) {
+      err.textContent = ex.message;
+      err.hidden = false;
+    }
+    $("userBtn").disabled = false;
+  });
+
+  boot();
+</script>
+</body>
+</html>

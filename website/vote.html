@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>Activity Time</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <div class="vote">
+    <div class="vote-top">
+      <div class="vote-brand">🎯 Activity Time</div>
+      <div class="city-chip" id="cityChip" hidden></div>
+    </div>
+
+    <div id="loading" class="center-msg">Loading...</div>
+    <div id="missing" class="center-msg" hidden>This link is not valid.<br>Please scan the QR code again.</div>
+
+    <div id="form" hidden>
+      <h1>Arrange your priorities</h1>
+      <p class="lead">Put your <b>1st priority</b> at the top and your <b>6th</b> at the bottom. Hold <b>☰</b> and drag, or use the arrows.</p>
+      <div class="rank-list" id="list"></div>
+      <div class="alert alert-error" id="err" hidden style="margin-top:14px"></div>
+      <div class="submit-bar">
+        <button class="btn btn-primary btn-block" id="submit">Submit My Priorities</button>
+      </div>
+    </div>
+
+    <div id="done" class="done" hidden>
+      <div class="tick">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+      </div>
+      <h1>Thank you!</h1>
+      <p class="lead">Your response has been submitted.</p>
+      <a class="btn btn-gold" id="liveLink" href="#">View Live Results</a>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="/config.js"></script>
+  <script src="/app.js"></script>
+  <script>
+    const slug = getSlug();
+    const $ = id => document.getElementById(id);
+    const list = $("list");
+    let city = null;
+
+    const UP = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 15l6-6 6 6"/></svg>';
+    const DOWN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>';
+    const GRIP = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg>';
+
+    function show(which) {
+      ["loading", "missing", "form", "done"].forEach(id => { $(id).hidden = id !== which; });
+    }
+
+    function subId() {
+      try {
+        let id = localStorage.getItem("activity_sub_id");
+        if (!id) { id = randomId(); localStorage.setItem("activity_sub_id", id); }
+        return id;
+      } catch (e) { return randomId(); }
+    }
+    function wasSubmitted() {
+      try { return localStorage.getItem("activity_done_" + slug) === "1"; } catch (e) { return false; }
+    }
+    function markSubmitted() {
+      try { localStorage.setItem("activity_done_" + slug, "1"); } catch (e) {}
+    }
+
+    function updateNumbers() {
+      [...list.children].forEach((el, i) => {
+        el.querySelector(".badge").textContent = i + 1;
+      });
+    }
+
+    function buildList() {
+      list.innerHTML = "";
+      ITEMS.forEach(item => {
+        const el = document.createElement("div");
+        el.className = "rank-item";
+        el.dataset.name = item.name;
+        el.innerHTML =
+          '<div class="badge">1</div>' +
+          '<div class="emoji">' + item.icon + '</div>' +
+          '<div class="rank-name">' + esc(item.name) + '</div>' +
+          '<div class="arrows">' +
+            '<button class="arrow" data-dir="-1" aria-label="Move up">' + UP + '</button>' +
+            '<button class="arrow" data-dir="1" aria-label="Move down">' + DOWN + '</button>' +
+          '</div>' +
+          '<div class="handle" aria-hidden="true">' + GRIP + '</div>';
+        list.appendChild(el);
+      });
+      updateNumbers();
+    }
+
+    /* arrows */
+    list.addEventListener("click", e => {
+      const btn = e.target.closest(".arrow");
+      if (!btn) return;
+      const el = btn.closest(".rank-item");
+      if (btn.dataset.dir === "-1") {
+        if (el.previousElementSibling) list.insertBefore(el, el.previousElementSibling);
+      } else {
+        if (el.nextElementSibling) list.insertBefore(el.nextElementSibling, el);
+      }
+      updateNumbers();
+    });
+
+    /* drag with the handle (mouse + touch) */
+    /* press and hold a row to pick it up, then slide it to its new place */
+    const HOLD_MS = 200;
+    let press = null;      /* finger down, waiting for the hold */
+    let pressTimer = null;
+    let drag = null;       /* row currently picked up */
+
+    function slotSize() {
+      const gap = parseFloat(getComputedStyle(list).rowGap) || 10;
+      return list.children[0].offsetHeight + gap;
+    }
+
+    function pickUp() {
+      if (!press) return;
+      const el = press.el;
+      const items = [...list.children];
+      const idx = items.indexOf(el);
+      drag = {
+        el, from: idx, to: idx, slot: slotSize(), done: false,
+        grab: press.y - el.getBoundingClientRect().top
+      };
+      el.style.transition = "transform .16s ease-out, box-shadow .3s ease, border-color .3s ease";
+      el.classList.add("dragging");
+      try { if (navigator.vibrate) navigator.vibrate(12); } catch (e) {}
+      moveDrag(press.y);
+      press = null;
+    }
+
+    function moveDrag(y) {
+      const items = [...list.children];
+      const n = items.length;
+      const { el, from, slot } = drag;
+      const listTop = list.getBoundingClientRect().top;
+      let top = y - drag.grab - listTop;
+      top = Math.max(-6, Math.min(top, (n - 1) * slot + 6));
+      const to = Math.max(0, Math.min(n - 1, Math.round(top / slot)));
+      drag.to = to;
+      el.style.transform = "translateY(" + (top - from * slot) + "px) scale(1.04)";
+      items.forEach((it, i) => {
+        if (it === el) return;
+        let t = 0;
+        if (from < to && i > from && i <= to) t = -slot;
+        else if (from > to && i >= to && i < from) t = slot;
+        it.style.transform = t ? "translateY(" + t + "px)" : "";
+      });
+    }
+
+    function drop() {
+      const { el, from, to, slot } = drag;
+      drag.done = true;
+      el.classList.remove("dragging");
+      el.classList.add("settling");
+      el.style.transition = "transform .28s cubic-bezier(.2,.8,.2,1), box-shadow .3s ease, border-color .3s ease";
+      el.style.transform = "translateY(" + ((to - from) * slot) + "px)";
+      setTimeout(() => {
+        const items = [...list.children];
+        items.forEach(it => { it.style.transition = "none"; it.style.transform = ""; });
+        if (to !== from) {
+          const ref = list.children[to > from ? to + 1 : to] || null;
+          list.insertBefore(el, ref);
+        }
+        void list.offsetHeight;
+        [...list.children].forEach(it => { it.style.transition = ""; });
+        el.classList.remove("settling");
+        updateNumbers();
+        drag = null;
+      }, 290);
+    }
+
+    function cancelPress() {
+      clearTimeout(pressTimer);
+      press = null;
+    }
+
+    list.addEventListener("pointerdown", e => {
+      if (drag || e.target.closest(".arrow")) return;
+      if (e.pointerType === "mouse" && e.button !== 0) return;
+      const el = e.target.closest(".rank-item");
+      if (!el) return;
+      press = { el, x0: e.clientX, y0: e.clientY, y: e.clientY };
+      clearTimeout(pressTimer);
+      pressTimer = setTimeout(pickUp, e.target.closest(".handle") ? 0 : HOLD_MS);
+    });
+
+    window.addEventListener("pointermove", e => {
+      if (drag && !drag.done) { moveDrag(e.clientY); return; }
+      if (press) {
+        const dx = e.clientX - press.x0;
+        const dy = e.clientY - press.y0;
+        if (Math.hypot(dx, dy) > 8) { cancelPress(); return; }
+        press.y = e.clientY;
+      }
+    });
+
+    /* stop the page scrolling while a row is held */
+    window.addEventListener("touchmove", e => {
+      if (drag && !drag.done) e.preventDefault();
+    }, { passive: false });
+
+    function release() {
+      if (drag && !drag.done) drop();
+      else cancelPress();
+    }
+    window.addEventListener("pointerup", release);
+    window.addEventListener("pointercancel", release);
+    list.addEventListener("contextmenu", e => e.preventDefault());
+
+    /* submit */
+    let busy = false;
+    $("submit").addEventListener("click", async () => {
+      if (busy) return;
+      busy = true;
+      const btn = $("submit");
+      btn.disabled = true;
+      btn.textContent = "Submitting...";
+      $("err").hidden = true;
+
+      const order = [...list.children].map(el => el.dataset.name);
+      const { error } = await sb.from("responses").insert({
+        city_id: city.id,
+        submission_id: subId(),
+        ranking: order
+      });
+
+      if (error && error.code !== "23505") {
+        busy = false;
+        btn.disabled = false;
+        btn.textContent = "Submit My Priorities";
+        $("err").textContent = "Something went wrong. Please try again.";
+        $("err").hidden = false;
+        return;
+      }
+      markSubmitted();
+      show("done");
+      window.scrollTo(0, 0);
+    });
+
+    async function init() {
+      if (!slug) return show("missing");
+      const { data, error } = await sb.from("cities").select("id,name,slug").eq("slug", slug).maybeSingle();
+      if (error || !data) return show("missing");
+      city = data;
+      document.title = city.name + " – Activity Time";
+      $("cityChip").textContent = city.name;
+      $("cityChip").hidden = false;
+      $("liveLink").href = "/live/" + encodeURIComponent(city.slug);
+      if (wasSubmitted()) return show("done");
+      buildList();
+      show("form");
+    }
+    init();
+  </script>
+</body>
+</html>

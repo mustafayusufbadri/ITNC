@@ -1,0 +1,6 @@
+{
+  "rewrites": [
+    { "source": "/c/:slug", "destination": "/vote.html" },
+    { "source": "/live/:slug", "destination": "/live.html" }
+  ]
+}
